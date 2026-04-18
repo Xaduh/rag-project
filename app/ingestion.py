@@ -39,7 +39,7 @@ print(f"chunks: {chunks}")
 
 # Loop gennem hvert chunk
 for chunk in chunks:      
-    embedding = get_embedding()
+    embedding = get_embedding(chunk)
     
     # gem chunk + embedding i db
     cursor.execute(

@@ -1,12 +1,14 @@
 """
 end-to-end RAG pipeline
+(Vector search er det gamle flow, Embedding search --> top 5 chunks --> LLM. Hurtigt og grovt)
+(Reranking, 2-Trins søgning. Langsom, men mere præcis)
 Spørgsmål
   ↓
 Embedding
   ↓
 pgvector search (semantic retrieval)
   ↓
-Top chunk (context)
+Reranking (LLM)
   ↓
 LLM (GPT)
   ↓
@@ -15,6 +17,7 @@ Svar
 from app.db import get_connection
 from app.openai_client import client
 from app.embeddings import get_embedding
+from app.reranking import rerank_chunks
 
 # forbindelse til db
 conn = get_connection()
@@ -22,7 +25,7 @@ conn = get_connection()
 cursor = conn.cursor()
 
 # Tekst fra bruger
-query = "Hvad er hovedstaden i Danmark?"
+query = "Hvad er et han?"
 
 # Embedding af spørgsmål
 query_embedding = get_embedding(query)
@@ -34,10 +37,10 @@ query_embedding = get_embedding(query)
 cursor.execute(
   """
   SELECT content, 
-  embedding <-> %s AS distance
+  embedding <-> %s::vector AS distance
   FROM documents
-  ORDER BY embedding <-> %s
-  LIMIT 5
+  ORDER BY embedding <-> %s::vector
+  LIMIT 10
   """,
   (query_embedding, query_embedding)
 )
@@ -54,24 +57,30 @@ cursor.execute(
 
 results = cursor.fetchall()
 
-# Fortæl hvor tæt et match der er
-for row in results:
-  print("tekst", row[0])
-  print("distance:", row[1])
-  
-  filtered = []
-  
-  # Filtrering af dårlige matches, 0.5 tærsklen skrues op og ned.
-  for content, distance in results:
-    if distance < 0.5:  
-      filtered.append(content)
+chunks = [row[0] for row in results]
 
+# Fortæl hvor tæt et match der er, filtering
+# for row in results:
+#   print("tekst", row[0])
+#   print("distance:", row[1])
+  
+#   filtered = []
+  
+#   # Filtrering af dårlige matches, 0.5 tærsklen skrues op og ned.
+#   for content, distance in results:
+#     if distance < 0.5:  
+#       filtered.append(content)
+reranked_chunks = rerank_chunks(query, chunks)
+
+print("\n Reranked chunks:")
+print(reranked_chunks)
 # Saml context
-context = "\n\n".join(filtered) # 'Bedre context building'
-# context = "\n".join([row[0] for row in results]) # Til simpel select
+context = "\n\n".join(reranked_chunks)
 
-print("Fundet context:")
-print(context)
+# context = "\n\n".join(filtered) # 'Bedre context building' Efter filter
+# print("Fundet context:")
+# print(context)
+# context = "\n".join([row[0] for row in results]) # Til simpel select
 
 # Byg AI prompt
 prompt = f"""
